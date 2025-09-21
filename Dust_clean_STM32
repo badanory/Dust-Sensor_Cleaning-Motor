@@ -1,0 +1,89 @@
+/* Includes ------------------------------------------------------------------*/
+#include "main.h"
+#include "i2c-lcd.h"   // 별도의 HD44780 기반 I2C LCD 라이브러리 추가 필요
+
+/* USER CODE BEGIN PV */
+ADC_HandleTypeDef hadc1;
+I2C_HandleTypeDef hi2c1;
+
+/* FAN 핀 */
+#define FAN_A_Pin GPIO_PIN_8
+#define FAN_A_GPIO_Port GPIOA
+#define FAN_B_Pin GPIO_PIN_9
+#define FAN_B_GPIO_Port GPIOA
+
+/* 히스테리시스 임계값 */
+#define UPPER 1400   // ADC 값 (0~4095, 보드에 따라 센서 값 보정 필요)
+#define LOWER 800
+
+/* 상태 변수 */
+uint8_t fanOn = 0;
+/* USER CODE END PV */
+
+/* USER CODE BEGIN 0 */
+uint16_t readSmokeValue(void) {
+    HAL_ADC_Start(&hadc1);
+    HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
+    uint16_t val = HAL_ADC_GetValue(&hadc1);
+    HAL_ADC_Stop(&hadc1);
+    return val;
+}
+
+void setFan(uint8_t on) {
+    if (on) {
+        HAL_GPIO_WritePin(FAN_A_GPIO_Port, FAN_A_Pin, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(FAN_B_GPIO_Port, FAN_B_Pin, GPIO_PIN_SET);
+    } else {
+        HAL_GPIO_WritePin(FAN_A_GPIO_Port, FAN_A_Pin, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(FAN_B_GPIO_Port, FAN_B_Pin, GPIO_PIN_RESET);
+    }
+}
+/* USER CODE END 0 */
+
+int main(void)
+{
+  /* MCU Configuration--------------------------------------------------------*/
+  HAL_Init();
+  SystemClock_Config();
+
+  /* GPIO Init */
+  MX_GPIO_Init();
+  MX_ADC1_Init();
+  MX_I2C1_Init();
+
+  /* LCD 초기화 */
+  lcd_init();
+  lcd_clear();
+  lcd_send_string("System Ready");
+
+  HAL_Delay(1000);
+
+  while (1)
+  {
+    uint16_t smokeValue = readSmokeValue();
+
+    /* LCD 표시 */
+    lcd_clear();
+    lcd_put_cur(0, 0);
+    lcd_send_string("Smoke Value:");
+    char buf[16];
+    sprintf(buf, "%d", smokeValue);
+    lcd_put_cur(0, 13);
+    lcd_send_string(buf);
+
+    /* 히스테리시스 제어 */
+    if (!fanOn && smokeValue >= UPPER) {
+        fanOn = 1;
+        setFan(1);
+        lcd_put_cur(1, 0);
+        lcd_send_string("Danger: Cleaning");
+    } else if (fanOn && smokeValue <= LOWER) {
+        fanOn = 0;
+        setFan(0);
+        lcd_put_cur(1, 0);
+        lcd_send_string("Safe: No Dust   ");
+    }
+
+    HAL_Delay(500);
+  }
+}
